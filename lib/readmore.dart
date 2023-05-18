@@ -11,7 +11,8 @@ enum TrimMode {
 class ReadMoreText extends StatefulWidget {
   const ReadMoreText(
     this.data, {
-    Key? key,
+    super.key,
+    this.controller,
     this.preDataText,
     this.postDataText,
     this.preDataTextStyle,
@@ -35,7 +36,9 @@ class ReadMoreText extends StatefulWidget {
     this.callback,
     this.onLinkPressed,
     this.linkTextStyle,
-  }) : super(key: key);
+  });
+
+  final ReadMoreController? controller;
 
   /// Used on TrimMode.Length
   final int trimLength;
@@ -90,219 +93,246 @@ class ReadMoreText extends StatefulWidget {
   ReadMoreTextState createState() => ReadMoreTextState();
 }
 
+class ReadMoreController extends ValueNotifier<bool> {
+  ReadMoreController({bool? value = true}) : super(value ?? true);
+  bool hasReadMore = false;
+}
+
 const String _kEllipsis = '\u2026';
 
 const String _kLineSeparator = '\u2028';
 
 class ReadMoreTextState extends State<ReadMoreText> {
-  bool _readMore = true;
+  late final ReadMoreController _controller;
+
+  @override
+  void initState() {
+    _controller = widget.controller ?? ReadMoreController(value: true);
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   void _onTapLink() {
-    setState(() {
-      _readMore = !_readMore;
-      widget.callback?.call(_readMore);
-    });
+    _controller.value = !_controller.value;
+    widget.callback?.call(_controller.value);
   }
 
   @override
   Widget build(BuildContext context) {
-    final DefaultTextStyle defaultTextStyle = DefaultTextStyle.of(context);
-    TextStyle? effectiveTextStyle = widget.style;
-    if (widget.style?.inherit ?? false) {
-      effectiveTextStyle = defaultTextStyle.style.merge(widget.style);
-    }
-
-    final textAlign =
-        widget.textAlign ?? defaultTextStyle.textAlign ?? TextAlign.start;
-    final textDirection = widget.textDirection ?? Directionality.of(context);
-    final textScaleFactor =
-        widget.textScaleFactor ?? MediaQuery.textScaleFactorOf(context);
-    final overflow = defaultTextStyle.overflow;
-    final locale = widget.locale ?? Localizations.maybeLocaleOf(context);
-
-    final colorClickableText =
-        widget.colorClickableText ?? Theme.of(context).colorScheme.secondary;
-    final _defaultLessStyle = widget.lessStyle ??
-        effectiveTextStyle?.copyWith(color: colorClickableText);
-    final _defaultMoreStyle = widget.moreStyle ??
-        effectiveTextStyle?.copyWith(color: colorClickableText);
-    final _defaultDelimiterStyle = widget.delimiterStyle ?? effectiveTextStyle;
-
-    TextSpan link = TextSpan(
-      text: _readMore ? widget.trimCollapsedText : widget.trimExpandedText,
-      style: _readMore ? _defaultMoreStyle : _defaultLessStyle,
-      recognizer: TapGestureRecognizer()..onTap = _onTapLink,
-    );
-
-    TextSpan _delimiter = TextSpan(
-      text: _readMore
-          ? widget.trimCollapsedText.isNotEmpty
-              ? widget.delimiter
-              : ''
-          : '',
-      style: _defaultDelimiterStyle,
-      recognizer: TapGestureRecognizer()..onTap = _onTapLink,
-    );
-
-    Widget result = LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        assert(constraints.hasBoundedWidth);
-        final double maxWidth = constraints.maxWidth;
-
-        TextSpan? preTextSpan;
-        TextSpan? postTextSpan;
-        if (widget.preDataText != null)
-          preTextSpan = TextSpan(
-            text: widget.preDataText! + " ",
-            style: widget.preDataTextStyle ?? effectiveTextStyle,
-          );
-        if (widget.postDataText != null)
-          postTextSpan = TextSpan(
-            text: " " + widget.postDataText!,
-            style: widget.postDataTextStyle ?? effectiveTextStyle,
-          );
-
-        // Create a TextSpan with data
-        final text = TextSpan(
-          children: [
-            if (preTextSpan != null) preTextSpan,
-            TextSpan(text: widget.data, style: effectiveTextStyle),
-            if (postTextSpan != null) postTextSpan
-          ],
-        );
-
-        // Layout and measure link
-        TextPainter textPainter = TextPainter(
-          text: link,
-          textAlign: textAlign,
-          textDirection: textDirection,
-          textScaleFactor: textScaleFactor,
-          maxLines: widget.trimLines,
-          ellipsis: overflow == TextOverflow.ellipsis ? widget.delimiter : null,
-          locale: locale,
-        );
-        textPainter.layout(minWidth: 0, maxWidth: maxWidth);
-        final linkSize = textPainter.size;
-
-        // Layout and measure delimiter
-        textPainter.text = _delimiter;
-        textPainter.layout(minWidth: 0, maxWidth: maxWidth);
-        final delimiterSize = textPainter.size;
-
-        // Layout and measure text
-        textPainter.text = text;
-        textPainter.layout(minWidth: constraints.minWidth, maxWidth: maxWidth);
-        final textSize = textPainter.size;
-
-        // Get the endIndex of data
-        bool linkLongerThanLine = false;
-        int endIndex;
-
-        if (linkSize.width < maxWidth) {
-          final readMoreSize = linkSize.width + delimiterSize.width;
-          final pos = textPainter.getPositionForOffset(Offset(
-            textDirection == TextDirection.rtl
-                ? readMoreSize
-                : textSize.width - readMoreSize,
-            textSize.height,
-          ));
-          endIndex = textPainter.getOffsetBefore(pos.offset) ?? 0;
-        } else {
-          var pos = textPainter.getPositionForOffset(
-            textSize.bottomLeft(Offset.zero),
-          );
-          endIndex = pos.offset;
-          linkLongerThanLine = true;
+    return ValueListenableBuilder<bool>(
+      builder: (BuildContext context, bool value, Widget? child) {
+        final _readMore = _controller.value;
+        final DefaultTextStyle defaultTextStyle = DefaultTextStyle.of(context);
+        TextStyle? effectiveTextStyle = widget.style;
+        if (widget.style?.inherit ?? false) {
+          effectiveTextStyle = defaultTextStyle.style.merge(widget.style);
         }
 
-        var textSpan;
-        switch (widget.trimMode) {
-          case TrimMode.Length:
-            if (widget.trimLength < widget.data.length) {
-              textSpan = _buildData(
-                data: _readMore
-                    ? widget.data.substring(0, widget.trimLength)
-                    : widget.data,
-                textStyle: effectiveTextStyle,
-                linkTextStyle: effectiveTextStyle?.copyWith(
-                  decoration: TextDecoration.underline,
-                  color: Colors.blue,
-                ),
-                onPressed: widget.onLinkPressed,
-                children: [_delimiter, link],
-              );
-            } else {
-              textSpan = _buildData(
-                data: widget.data,
-                textStyle: effectiveTextStyle,
-                linkTextStyle: effectiveTextStyle?.copyWith(
-                  decoration: TextDecoration.underline,
-                  color: Colors.blue,
-                ),
-                onPressed: widget.onLinkPressed,
-                children: [],
-              );
-            }
-            break;
-          case TrimMode.Line:
-            if (textPainter.didExceedMaxLines) {
-              textSpan = _buildData(
-                data: _readMore
-                    ? widget.data.substring(0, endIndex) +
-                        (linkLongerThanLine ? _kLineSeparator : '')
-                    : widget.data,
-                textStyle: effectiveTextStyle,
-                linkTextStyle: effectiveTextStyle?.copyWith(
-                  decoration: TextDecoration.underline,
-                  color: Colors.blue,
-                ),
-                onPressed: widget.onLinkPressed,
-                children: [_delimiter, link],
-              );
-            } else {
-              textSpan = _buildData(
-                data: widget.data,
-                textStyle: effectiveTextStyle,
-                linkTextStyle: effectiveTextStyle?.copyWith(
-                  decoration: TextDecoration.underline,
-                  color: Colors.blue,
-                ),
-                onPressed: widget.onLinkPressed,
-                children: [],
-              );
-            }
-            break;
-          default:
-            throw Exception(
-                'TrimMode type: ${widget.trimMode} is not supported');
-        }
+        final textAlign =
+            widget.textAlign ?? defaultTextStyle.textAlign ?? TextAlign.start;
+        final textDirection =
+            widget.textDirection ?? Directionality.of(context);
+        final textScaleFactor =
+            widget.textScaleFactor ?? MediaQuery.textScaleFactorOf(context);
+        final overflow = defaultTextStyle.overflow;
+        final locale = widget.locale ?? Localizations.maybeLocaleOf(context);
 
-        return Text.rich(
-          TextSpan(
-            children: [
-              if (preTextSpan != null) preTextSpan,
-              textSpan,
-              if (postTextSpan != null) postTextSpan,
-            ],
-          ),
-          textAlign: textAlign,
-          textDirection: textDirection,
-          softWrap: true,
-          overflow: TextOverflow.clip,
-          textScaleFactor: textScaleFactor,
+        final colorClickableText = widget.colorClickableText ??
+            Theme.of(context).colorScheme.secondary;
+        final _defaultLessStyle = widget.lessStyle ??
+            effectiveTextStyle?.copyWith(color: colorClickableText);
+        final _defaultMoreStyle = widget.moreStyle ??
+            effectiveTextStyle?.copyWith(color: colorClickableText);
+        final _defaultDelimiterStyle =
+            widget.delimiterStyle ?? effectiveTextStyle;
+
+        TextSpan link = TextSpan(
+          text: _readMore ? widget.trimCollapsedText : widget.trimExpandedText,
+          style: _readMore ? _defaultMoreStyle : _defaultLessStyle,
+          recognizer: TapGestureRecognizer()..onTap = _onTapLink,
         );
+
+        TextSpan _delimiter = TextSpan(
+          text: _readMore
+              ? widget.trimCollapsedText.isNotEmpty
+                  ? widget.delimiter
+                  : ''
+              : '',
+          style: _defaultDelimiterStyle,
+          recognizer: TapGestureRecognizer()..onTap = _onTapLink,
+        );
+
+        Widget result = LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            assert(constraints.hasBoundedWidth);
+            final double maxWidth = constraints.maxWidth;
+
+            TextSpan? preTextSpan;
+            TextSpan? postTextSpan;
+            if (widget.preDataText != null)
+              preTextSpan = TextSpan(
+                text: widget.preDataText! + " ",
+                style: widget.preDataTextStyle ?? effectiveTextStyle,
+              );
+            if (widget.postDataText != null)
+              postTextSpan = TextSpan(
+                text: " " + widget.postDataText!,
+                style: widget.postDataTextStyle ?? effectiveTextStyle,
+              );
+
+            // Create a TextSpan with data
+            final text = TextSpan(
+              children: [
+                if (preTextSpan != null) preTextSpan,
+                TextSpan(text: widget.data, style: effectiveTextStyle),
+                if (postTextSpan != null) postTextSpan
+              ],
+            );
+
+            // Layout and measure link
+            TextPainter textPainter = TextPainter(
+              text: link,
+              textAlign: textAlign,
+              textDirection: textDirection,
+              textScaleFactor: textScaleFactor,
+              maxLines: widget.trimLines,
+              ellipsis:
+                  overflow == TextOverflow.ellipsis ? widget.delimiter : null,
+              locale: locale,
+            );
+            textPainter.layout(minWidth: 0, maxWidth: maxWidth);
+            final linkSize = textPainter.size;
+
+            // Layout and measure delimiter
+            textPainter.text = _delimiter;
+            textPainter.layout(minWidth: 0, maxWidth: maxWidth);
+            final delimiterSize = textPainter.size;
+
+            // Layout and measure text
+            textPainter.text = text;
+            textPainter.layout(
+                minWidth: constraints.minWidth, maxWidth: maxWidth);
+            final textSize = textPainter.size;
+
+            // Get the endIndex of data
+            bool linkLongerThanLine = false;
+            int endIndex;
+
+            if (linkSize.width < maxWidth) {
+              final readMoreSize = linkSize.width + delimiterSize.width;
+              final pos = textPainter.getPositionForOffset(Offset(
+                textDirection == TextDirection.rtl
+                    ? readMoreSize
+                    : textSize.width - readMoreSize,
+                textSize.height,
+              ));
+              endIndex = textPainter.getOffsetBefore(pos.offset) ?? 0;
+            } else {
+              var pos = textPainter.getPositionForOffset(
+                textSize.bottomLeft(Offset.zero),
+              );
+              endIndex = pos.offset;
+              linkLongerThanLine = true;
+            }
+
+            var textSpan;
+            switch (widget.trimMode) {
+              case TrimMode.Length:
+                if (widget.trimLength < widget.data.length) {
+                  _controller.hasReadMore = true;
+                  textSpan = _buildData(
+                    data: _readMore
+                        ? widget.data.substring(0, widget.trimLength)
+                        : widget.data,
+                    textStyle: effectiveTextStyle,
+                    linkTextStyle: effectiveTextStyle?.copyWith(
+                      decoration: TextDecoration.underline,
+                      color: Colors.blue,
+                    ),
+                    onPressed: widget.onLinkPressed,
+                    children: [_delimiter, link],
+                  );
+                } else {
+                  textSpan = _buildData(
+                    data: widget.data,
+                    textStyle: effectiveTextStyle,
+                    linkTextStyle: effectiveTextStyle?.copyWith(
+                      decoration: TextDecoration.underline,
+                      color: Colors.blue,
+                    ),
+                    onPressed: widget.onLinkPressed,
+                    children: [],
+                  );
+                }
+                break;
+              case TrimMode.Line:
+                if (textPainter.didExceedMaxLines) {
+                  _controller.hasReadMore = true;
+                  textSpan = _buildData(
+                    data: _readMore
+                        ? widget.data.substring(0, endIndex) +
+                            (linkLongerThanLine ? _kLineSeparator : '')
+                        : widget.data,
+                    textStyle: effectiveTextStyle,
+                    linkTextStyle: effectiveTextStyle?.copyWith(
+                      decoration: TextDecoration.underline,
+                      color: Colors.blue,
+                    ),
+                    onPressed: widget.onLinkPressed,
+                    children: [_delimiter, link],
+                  );
+                } else {
+                  textSpan = _buildData(
+                    data: widget.data,
+                    textStyle: effectiveTextStyle,
+                    linkTextStyle: effectiveTextStyle?.copyWith(
+                      decoration: TextDecoration.underline,
+                      color: Colors.blue,
+                    ),
+                    onPressed: widget.onLinkPressed,
+                    children: [],
+                  );
+                }
+                break;
+              default:
+                throw Exception(
+                    'TrimMode type: ${widget.trimMode} is not supported');
+            }
+
+            return Text.rich(
+              TextSpan(
+                children: [
+                  if (preTextSpan != null) preTextSpan,
+                  textSpan,
+                  if (postTextSpan != null) postTextSpan,
+                ],
+              ),
+              textAlign: textAlign,
+              textDirection: textDirection,
+              softWrap: true,
+              overflow: TextOverflow.clip,
+              textScaleFactor: textScaleFactor,
+            );
+          },
+        );
+        if (widget.semanticsLabel != null) {
+          result = Semantics(
+            textDirection: widget.textDirection,
+            label: widget.semanticsLabel,
+            child: ExcludeSemantics(
+              child: result,
+            ),
+          );
+        }
+        return result;
       },
+      valueListenable: _controller,
     );
-    if (widget.semanticsLabel != null) {
-      result = Semantics(
-        textDirection: widget.textDirection,
-        label: widget.semanticsLabel,
-        child: ExcludeSemantics(
-          child: result,
-        ),
-      );
-    }
-    return result;
   }
 
   TextSpan _buildData({
